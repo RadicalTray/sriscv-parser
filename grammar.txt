@@ -1,0 +1,29 @@
+[SRISC Grammar]
+// NOTE(1): maybe newlines are insignificant actually (just a token separator like spaces)
+//  since there is no ambiguity between each instruction 🤔
+
+// NOTE: idk if label can exist before an instruction
+program     -> start (instruction|label_block)* end
+
+start       -> ".code" NEWLINE
+instruction -> (arithmetic | move | branch) NEWLINE // AKA statement
+label_block -> lbl ":" NEWLINE instruction* // NOTE: example doesn't newline after ":", see NOTE(1)
+end         -> ".end"
+
+arithmetic -> ("add" | "sub" | "and" | "or") reg "," reg "," (reg | IMMEDIATE)
+move       -> ("ld" | "sd" | "lw" | "sw") reg "," NUMBER "(" reg ")" // NOTE: Idk if pure reg is also allowed
+branch     -> ("beq" | "bne" | "blt" | "bge") reg "," reg "," lbl
+
+reg        -> "x" ["0".."31"]
+lbl        -> "L" ["0".."10"]
+
+// NOTE: comments are actually ignored by the scanner (lexer)
+//  AND it isn't required by the assignment
+comment    -> ";" STRING
+
+[TODO]
+- is this suitable for LL(1) parsing? why?
+- compute first and follow set of SRISC grammar in
+- draw parsing table
+- write a parser (pseudo code)
+- (optional) implement a real parser (runnable) in your chosen language.
