@@ -1,7 +1,5 @@
 # SRISC Grammar
 
-> TODO: instruction, arithmetic, move, branch as rules
-
 ```
 // NOTE(1): maybe newlines are insignificant actually (just a token separator like spaces)
 //  since there is no ambiguity between each instruction 🤔
@@ -10,7 +8,6 @@
 program     -> start instruction* label_block* end
 
 // NOTE: example doesn't newline after ":", see NOTE(1)
-//  label currently does not require an instruction cuz idk, although it can be easily fixed if wanted
 label_block -> lbl ":" newline instruction*
 
 // Technically, these can also be terminals? But very awkward to be writing a parsing table and pseudo code without these -.-
@@ -103,7 +100,7 @@ while (!stack.isEmpty()) {
     const sym = stack.peek();
     const tok = input.peek();
 
-    // end counts as a terminal
+    // end & epsilon counts as a terminal in this case
     if (sym.isTerminal()) {
         // if valid -> consume token
         if (sym.hasToken(tok)) {
@@ -120,7 +117,6 @@ while (!stack.isEmpty()) {
         if (parsing_table.contains(sym, tok)) {
             stack.pop();
             stack.pushAllReverse(parsing_table.get(sym, tok));
-            input.advance();
             continue;
         }
         ERROR();
