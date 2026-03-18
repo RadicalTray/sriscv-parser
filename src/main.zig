@@ -7,7 +7,11 @@ pub fn main() !void {
         std.debug.print("Usage: {s} <file path>", .{args[0]});
         return;
     }
-    const code = try std.fs.cwd().readFileAlloc(gpa, args[1], std.math.maxInt(usize));
+    const code =
+        std.fs.cwd().readFileAlloc(gpa, args[1], std.math.maxInt(usize)) catch |e| switch (e) {
+            error.FileNotFound => return std.log.err("File \"{s}\" not found!", .{args[1]}),
+            else => return e,
+        };
     var scanner: Scanner = try .init(code, 128);
     const tokens = scanner.scan() catch |e| {
         switch (e) {
@@ -82,6 +86,7 @@ const Symbol = enum {
     // Terminal
     // special
     epsilon,
+    arithmetic_const, // this conflicts with register and number
     // single token
     start,
     end,
@@ -97,59 +102,6 @@ const Symbol = enum {
     arithmetic_ops,
     move_ops,
     branch_ops,
-    arithmetic_constant,
-
-    fn hasToken(s: Symbol, t: Token) !bool {
-        switch (s) {
-            .epsilon => return false,
-            .start => return t == .@".code",
-            .end => return t == .@".end",
-            .newline => return t == .newline,
-            .colon => return t == .colon,
-            .comma => return t == .comma,
-            .number => return t == .number,
-            .left_paren => return t == .left_paren,
-            .right_paren => return t == .right_paren,
-            .register => return t == .register,
-            .label => return t == .label,
-            .arithmetic_ops => {
-                const tokens = [_]Token.Tag{
-                    .add,
-                    .sub,
-                    .@"and",
-                    .@"or",
-                };
-                for (tokens) |o| if (t == o) return true;
-            },
-            .move_ops => {
-                const tokens = [_]Token.Tag{
-                    .ld,
-                    .sd,
-                    .lw,
-                    .sw,
-                };
-                for (tokens) |o| if (t == o) return true;
-            },
-            .branch_ops => {
-                const tokens = [_]Token.Tag{
-                    .beq,
-                    .bne,
-                    .blt,
-                    .bge,
-                };
-                for (tokens) |o| if (t == o) return true;
-            },
-            .arithmetic_constant => {
-                const tokens = [_]Token.Tag{
-                    .number,
-                    .register,
-                };
-                for (tokens) |o| if (t == o) return true;
-            },
-            else => return error.SymbolIsNotTerminal,
-        }
-        return false;
-    }
 
     fn isTerminal(s: Symbol) bool {
         return switch (s) {
@@ -167,7 +119,7 @@ const Symbol = enum {
             .arithmetic_ops,
             .move_ops,
             .branch_ops,
-            .arithmetic_constant,
+            .arithmetic_const,
             => true,
             else => false,
         };
@@ -215,6 +167,8 @@ fn symbolFromToken(t: Token) Symbol {
 const Parser = struct {
     fn parse(source: []const Token) !void {
         // SETUP PARSING TABLE
+        // FIXME: Use actual tokens like a real LL(1) parser.
+        //  Epsilon can be added as another token tag.
         const Key = struct {
             v: Symbol,
             t: Symbol,
@@ -274,7 +228,7 @@ const Parser = struct {
         try parsing_table.put(.{
             .v = .arithmetic,
             .t = .arithmetic_ops,
-        }, &.{ .arithmetic_ops, .register, .comma, .register, .comma, .arithmetic_constant });
+        }, &.{ .arithmetic_ops, .register, .comma, .register, .comma, .arithmetic_const });
 
         try parsing_table.put(.{
             .v = .move,
@@ -293,24 +247,30 @@ const Parser = struct {
         var src_idx: u32 = 0;
         while (stack.items.len > 0) {
             const sym = stack.items[stack.items.len - 1];
-            // FIXME: Symbol.hasToken() can be dropped by using symbolFromToken(source[src_idx]) instead of using source[src_idx] directly
-            const tok = source[src_idx];
-            std.debug.print("Symbol: {} from stack {any}\nInput: {} from token {}\n\n", .{ sym, stack.items, symbolFromToken(tok), tok });
+            const in = symbolFromToken(source[src_idx]);
+            std.debug.print(
+                "Symbol: {} from stack {any}\nInput: {} from token {}\n\n",
+                .{ sym, stack.items, in, source[src_idx] },
+            );
 
             if (sym.isTerminal()) {
-                if (try sym.hasToken(tok)) {
+                // since our grammar rules are atrocious,
+                // arithmetic_const has to be handled separately.
+                if (sym == in or (sym == .arithmetic_const and (in == .register or in == .number))) {
                     stack.items.len -= 1;
                     src_idx += 1;
                     continue;
                 }
+
                 if (sym == .epsilon) {
                     stack.items.len -= 1;
                     continue;
                 }
-                std.log.err("Parsing error -> Expected {}, got {}", .{ sym, symbolFromToken(tok) });
+
+                std.log.err("Parsing error -> Expected {}, got {}", .{ sym, in });
                 return error.UnexpectedToken;
             } else {
-                if (parsing_table.get(.{ .v = sym, .t = symbolFromToken(tok) })) |symbols| {
+                if (parsing_table.get(.{ .v = sym, .t = in })) |symbols| {
                     stack.items.len -= 1;
                     var i: usize = symbols.len;
                     while (i > 0) {
@@ -319,7 +279,7 @@ const Parser = struct {
                     }
                     continue;
                 }
-                std.log.err("Parsing error -> ({}, {}) not found in the parsing table", .{ sym, symbolFromToken(tok) });
+                std.log.err("Parsing error -> ({}, {}) not found in the parsing table", .{ sym, in });
                 return error.NotFoundInParsingTable;
             }
         }
